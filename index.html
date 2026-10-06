@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Click monitoring</title>
+  <style>
+    body { max-width: 42rem; margin: 3rem auto; padding: 0 1rem; font-family: sans-serif; }
+    button { margin: 0 .5rem .5rem 0; padding: .6rem 1rem; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: .6rem; text-align: left; border-bottom: 1px solid #ccc; }
+    [role="alert"] { color: #a21b1b; }
+  </style>
+</head>
+<body>
+  <h1>Click monitoring</h1>
+  <p>Click a button to send an event. Stored counts refresh every two seconds.</p>
+  <div id="buttons">
+    <button id="signup-button" type="button">Sign up</button>
+    <button id="products-button" type="button">View products</button>
+    <button id="contact-button" type="button">Contact us</button>
+  </div>
+  <p id="click-status" role="status" aria-live="polite"></p>
+  <p id="click-error" role="alert"></p>
+  <h2>Stored clicks</h2>
+  <table>
+    <thead><tr><th scope="col">Element ID</th><th scope="col">Count</th></tr></thead>
+    <tbody id="stats-body"></tbody>
+  </table>
+  <p id="stats-status" role="status" aria-live="polite">Loading statistics…</p>
+  <p id="stats-error" role="alert"></p>
+  <script>
+    const clickStatus = document.getElementById("click-status");
+    const clickError = document.getElementById("click-error");
+    const statsStatus = document.getElementById("stats-status");
+    const statsError = document.getElementById("stats-error");
+    const statsBody = document.getElementById("stats-body");
+
+    async function sendClick(button, sessionId) {
+      try {
+        const event = {
+          event_id: crypto.randomUUID(),
+          schema_version: 1,
+          occurred_at: new Date().toISOString(),
+          session_id: sessionId,
+          page: window.location.pathname,
+          element_id: button.id
+        };
+        const response = await fetch("/events/click", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(event),
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        clickError.textContent = "";
+        clickStatus.textContent = `${button.id}: accepted for storage. Counts may update shortly.`;
+      } catch (error) {
+        clickStatus.textContent = "";
+        clickError.textContent = `Click request failed: ${error.message}`;
+      }
+    }
+
+    function initializeClicks() {
+      const buttons = document.querySelectorAll("#buttons button");
+      try {
+        let sessionId = sessionStorage.getItem("click-monitoring:session_id");
+        if (!sessionId) {
+          sessionId = crypto.randomUUID();
+          sessionStorage.setItem("click-monitoring:session_id", sessionId);
+        }
+        for (const button of buttons) {
+          button.addEventListener("click", () => sendClick(button, sessionId));
+        }
+      } catch (error) {
+        clickError.textContent = `Click tracking could not start: ${error.message}`;
+        for (const button of buttons) button.disabled = true;
+      }
+    }
+
+    async function refreshStats() {
+      try {
+        const response = await fetch("/stats/clicks", {
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const counts = await response.json();
+        const rows = counts.map(({ element_id, count }) => {
+          const row = document.createElement("tr");
+          for (const value of [element_id, count]) {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            row.append(cell);
+          }
+          return row;
+        });
+        statsBody.replaceChildren(...rows);
+        statsError.textContent = "";
+        statsStatus.textContent = counts.length ? "Counts include all stored clicks." : "No clicks stored yet.";
+      } catch (error) {
+        statsStatus.textContent = "Displayed counts may be stale.";
+        statsError.textContent = `Statistics request failed: ${error.message}`;
+      } finally {
+        setTimeout(refreshStats, 2000);
+      }
+    }
+
+    initializeClicks();
+    refreshStats();
+  </script>
+</body>
+</html>
