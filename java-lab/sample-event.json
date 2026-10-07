@@ -1,0 +1,8 @@
+{
+  "event_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "schema_version": 1,
+  "occurred_at": "2026-10-07T07:46:04.851Z",
+  "session_id": "demo-session",
+  "page": "/products",
+  "element_id": "signup-button"
+}

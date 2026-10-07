@@ -2,9 +2,17 @@ package lab;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import java.util.Optional;
+import java.util.UUID;
+import java.time.OffsetDateTime;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -12,11 +20,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 
-@SpringBootTest
-@AutoConfigureMockMvc
+@WebMvcTest(ClickEventController.class)
+@Import(JavaLabApplication.class)
 class ClickEventControllerTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
+    @MockitoBean ClickEventService service;
+
+    @BeforeEach
+    void insertsByDefault() {
+        when(service.store(any())).thenAnswer(call ->
+                new ClickEventService.StoreResult(true, call.getArgument(0)));
+    }
 
     private Map<String, Object> event() {
         return new LinkedHashMap<>(Map.of(
@@ -26,10 +41,11 @@ class ClickEventControllerTest {
     }
 
     @Test
-    void echoesValidEvent() throws Exception {
+    void returnsCreatedEvent() throws Exception {
         mvc.perform(post("/lab/events/click").contentType(APPLICATION_JSON)
                 .content(json.writeValueAsString(event())))
-                .andExpect(status().isOk()).andExpect(content().json(json.writeValueAsString(event())));
+                .andExpect(status().isCreated()).andExpect(header().string("X-Event-Inserted", "true"))
+                .andExpect(content().json(json.writeValueAsString(event())));
     }
 
     @Test
@@ -67,17 +83,43 @@ class ClickEventControllerTest {
         payload.put("page", "x".repeat(2048));
         payload.put("element_id", "😀".repeat(128));
         mvc.perform(post("/lab/events/click").contentType(APPLICATION_JSON)
-                .content(json.writeValueAsString(payload))).andExpect(status().isOk())
+                .content(json.writeValueAsString(payload))).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.session_id").value("session-1"));
         payload.put("session_id", "x".repeat(128));
         mvc.perform(post("/lab/events/click").contentType(APPLICATION_JSON)
-                .content(json.writeValueAsString(payload))).andExpect(status().isOk());
+                .content(json.writeValueAsString(payload))).andExpect(status().isCreated());
         payload.put("element_id", "😀".repeat(129));
         assertBadRequest(payload);
     }
 
+    @Test
+    void duplicateReturnsOriginalEvent() throws Exception {
+        var original = new ClickEvent(UUID.fromString((String) event().get("event_id")), 1,
+                OffsetDateTime.parse("2026-10-06T12:00:00+02:00"), "session-1", "/original", "gumb-č");
+        when(service.store(any())).thenReturn(new ClickEventService.StoreResult(false, original));
+        mvc.perform(post("/lab/events/click").contentType(APPLICATION_JSON)
+                .content(json.writeValueAsString(event())))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Event-Inserted", "false"))
+                .andExpect(jsonPath("$.page").value("/original"));
+    }
+
+    @Test
+    void getsStoredEventAndReturns404ForMissingEvent() throws Exception {
+        var original = json.convertValue(event(), ClickEvent.class);
+        when(service.findById(original.eventId())).thenReturn(Optional.of(original));
+        mvc.perform(get("/lab/events/click/" + original.eventId()))
+                .andExpect(status().isOk()).andExpect(content().json(json.writeValueAsString(original)));
+        var missingId = UUID.randomUUID();
+        when(service.findById(missingId)).thenReturn(Optional.empty());
+        mvc.perform(get("/lab/events/click/" + missingId)).andExpect(status().isNotFound());
+        mvc.perform(get("/lab/events/click/invalid")).andExpect(status().isBadRequest());
+    }
+
     private void assertBadRequest(Map<String, Object> payload) throws Exception {
+        clearInvocations(service);
         mvc.perform(post("/lab/events/click").contentType(APPLICATION_JSON)
                 .content(json.writeValueAsString(payload))).andExpect(status().isBadRequest());
+        verify(service, never()).store(any());
     }
 }
