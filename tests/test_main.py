@@ -6,7 +6,7 @@ import psycopg
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError, TimeoutError
 
-from main import app
+from app.main import app
 
 
 EVENT = {
@@ -23,7 +23,7 @@ class ClickEndpointTests(unittest.TestCase):
     def setUp(self):
         self.redis = Mock()
         self.redis.xadd.return_value = b"1234567890-0"
-        self.factory = patch("main.redis.Redis.from_url", return_value=self.redis)
+        self.factory = patch("app.main.redis.Redis.from_url", return_value=self.redis)
         self.factory_mock = self.factory.start()
         self.addCleanup(self.factory.stop)
         self.client = TestClient(app)
@@ -110,7 +110,7 @@ class ClickEndpointTests(unittest.TestCase):
         connection.execute.return_value.fetchall.return_value = [
             ("products-button", 3), ("signup-button", 2)
         ]
-        with patch.dict("os.environ", {"DATABASE_URL": "postgresql://example"}), patch("main.psycopg.connect", return_value=connection) as connect:
+        with patch.dict("os.environ", {"DATABASE_URL": "postgresql://example"}), patch("app.main.psycopg.connect", return_value=connection) as connect:
             response = self.client.get("/stats/clicks")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [
@@ -127,7 +127,7 @@ class ClickEndpointTests(unittest.TestCase):
         connection = MagicMock()
         connection.__enter__.return_value = connection
         connection.execute.return_value.fetchall.return_value = []
-        with patch.dict("os.environ", {"DATABASE_URL": "postgresql://example"}), patch("main.psycopg.connect", return_value=connection):
+        with patch.dict("os.environ", {"DATABASE_URL": "postgresql://example"}), patch("app.main.psycopg.connect", return_value=connection):
             response = self.client.get("/stats/clicks")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
@@ -137,9 +137,9 @@ class ClickEndpointTests(unittest.TestCase):
         connection.__enter__.return_value = connection
         connection.execute.side_effect = psycopg.OperationalError("query failed")
         with patch.dict("os.environ", {"DATABASE_URL": "postgresql://example"}):
-            with patch("main.psycopg.connect", side_effect=psycopg.OperationalError("offline")):
+            with patch("app.main.psycopg.connect", side_effect=psycopg.OperationalError("offline")):
                 self.assertEqual(self.client.get("/stats/clicks").status_code, 503)
-            with patch("main.psycopg.connect", return_value=connection):
+            with patch("app.main.psycopg.connect", return_value=connection):
                 response = self.client.get("/stats/clicks")
                 self.assertEqual(response.status_code, 503)
                 self.assertNotIn("query failed", response.text)

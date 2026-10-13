@@ -7,8 +7,8 @@ import psycopg
 import redis
 from pydantic import ValidationError
 
-import init_db
-import storage_consumer as storage
+from scripts import init_db
+from app import storage_consumer as storage
 
 
 EVENT = {

@@ -10,10 +10,11 @@ from fastapi.responses import FileResponse
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from redis.backoff import NoBackoff
 from redis.retry import Retry
-from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
 
 class ClickEvent(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
@@ -47,7 +48,7 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/", response_class=FileResponse)
 def index():
-    return FileResponse(Path(__file__).with_name("index.html"), media_type="text/html")
+    return FileResponse(Path(__file__).resolve().parent / "static" / "index.html", media_type="text/html")
 
 
 @app.get("/stats/clicks")

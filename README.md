@@ -4,8 +4,42 @@ Python se pokreće izravno u WSL-u, primjerice kroz VS Code. Docker Desktop na
 Windowsu preko WSL integracije pokreće Redis i PostgreSQL. Docker Compose
 pokreće ta dva servisa, a API i consumer pokreću se zasebno u WSL terminalima.
 
-FastAPI prihvaća klikove i šalje ih u Redis Stream. `storage_consumer.py`
+FastAPI prihvaća klikove i šalje ih u Redis Stream. `app/storage_consumer.py`
 sprema događaje u PostgreSQL, a stranica prikazuje broj pohranjenih klikova.
+
+## Struktura projekta
+
+```text
+click-monitoring/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI, validacija i statistika
+│   ├── storage_consumer.py     # Redis → PostgreSQL
+│   └── static/
+│       └── index.html          # Stranica s gumbima
+├── scripts/
+│   ├── __init__.py
+│   └── init_db.py              # Prvo stvaranje tablice
+├── examples/
+│   ├── producer.py             # Slanje događaja bez API-ja
+│   ├── consumer.py             # Čitanje i ispis Redis događaja
+│   └── demo.py                 # JSON i UTF-8 primjer
+├── tests/
+│   ├── __init__.py
+│   ├── test_main.py
+│   └── test_storage_consumer.py
+├── compose.yaml
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+`app/` sadrži aplikaciju, `scripts/` pomoćne naredbe, `examples/` primjere za
+učenje, a `tests/` automatizirane testove. `.env` i `.venv/` ostaju u korijenu
+projekta i ignorirani su u Gitu. Python module pokrećite s `python -m ...`
+iz korijena projekta kako bi se importi ispravno razriješili.
 
 ## Preduvjeti i priprema
 
@@ -46,12 +80,9 @@ Pripremite virtualno okruženje i instalirajte ovisnosti:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m pip install python-dotenv
 ```
 
-Zasebna instalacija `python-dotenv` potrebna je jer ga `main.py` uvozi,
-a trenutačni `requirements.txt` ga ne sadrži. API i storage consumer koriste
-isti modul, pa im je ta ovisnost potrebna.
+`requirements.txt` uključuje i `python-dotenv` za učitavanje postavki iz `.env`.
 
 ## Pokretanje Redisa i PostgreSQL-a
 
@@ -64,7 +95,7 @@ docker compose ps
 ```
 
 Prvo pokretanje preuzima slike i inicijalizira PostgreSQL bazu i korisnika.
-Tablica `click_events` nastaje zasebno, naredbom `python init_db.py`.
+Tablica `click_events` nastaje zasebno, naredbom `python -m scripts.init_db`.
 Status pokrenutog kontejnera ne znači da je baza već spremna za veze.
 Provjerite servise i njihove zapise:
 
@@ -89,12 +120,17 @@ source .venv/bin/activate
 set -a
 source .env
 set +a
-python init_db.py
+python -m scripts.init_db
 ```
 
 Očekivana poruka je `click_events table initialized.` Naredba stvara tablicu
 ako ne postoji; ponovno pokretanje ne briše podatke i ne mijenja strukturu
 postojeće tablice. Ne stvara novu bazu niti provodi migracije.
+
+Ovu naredbu zadržavamo za pripremu nove baze: Docker stvara bazu i korisnika,
+a skripta stvara aplikacijsku tablicu. Ako tablica već postoji, inicijalizaciju
+ne treba ponavljati pri svakom pokretanju. Za buduće promjene stupaca ili
+ograničenja trebale bi migracije; `CREATE TABLE IF NOT EXISTS` ih ne provodi.
 
 ## Pokretanje API-ja — terminal 1
 
@@ -105,7 +141,7 @@ source .venv/bin/activate
 set -a
 source .env
 set +a
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Ostavite ovaj terminal otvoren. `--reload` ponovno pokreće API pri promjenama
@@ -115,7 +151,7 @@ koda i namijenjen je lokalnom razvoju.
 - Interaktivna dokumentacija API-ja: <http://127.0.0.1:8000/docs>
 - Statistika u JSON formatu: <http://127.0.0.1:8000/stats/clicks>
 
-Stranicu otvorite preko API-ja; izravno otvaranje `index.html` ne pruža API rute.
+Stranicu otvorite preko API-ja; izravno otvaranje `app/static/index.html` ne pruža API rute.
 `DATABASE_URL` potreban je API-ju za statistiku. Sam `POST /events/click`
 koristi Redis i ne zapisuje izravno u PostgreSQL.
 
@@ -128,7 +164,7 @@ source .venv/bin/activate
 set -a
 source .env
 set +a
-python storage_consumer.py
+python -m app.storage_consumer
 ```
 
 Consumer čeka događaje, pa prazan terminal bez poruka ne znači da ne radi.
@@ -137,7 +173,7 @@ kako bi consumer obradio svoje nepotvrđene događaje. Ako istodobno pokrećete
 više workera, svakome dodijelite drugo ime, primjerice:
 
 ```bash
-CONSUMER_NAME=worker-2 python storage_consumer.py
+CONSUMER_NAME=worker-2 python -m app.storage_consumer
 ```
 
 Za cijeli tijek redoslijed je: **Docker servisi → inicijalizacija tablice →
@@ -179,8 +215,8 @@ sam generira pri svakom kliku.
 
 ## Skripte za učenje
 
-`consumer.py` samo čita i ispisuje događaje iz Redisa. Za spremanje u bazu
-pokrenite `storage_consumer.py`. Izvornog consumera možete pokrenuti u zasebnom
+`examples/consumer.py` samo čita i ispisuje događaje iz Redisa. Za spremanje u bazu
+pokrenite `app/storage_consumer.py`. Izvornog consumera možete pokrenuti u zasebnom
 terminalu nakon aktivacije okruženja i učitavanja postavki:
 
 ```bash
@@ -188,26 +224,26 @@ source .venv/bin/activate
 set -a
 source .env
 set +a
-python consumer.py
+python examples/consumer.py
 ```
 
 U drugom pripremljenom terminalu pošaljite jedan događaj bez API-ja:
 
 ```bash
-python producer.py
+python examples/producer.py
 ```
 
-`consumer.py` koristi `XREAD`, kreće od `0-0` i nakon ponovnog pokretanja opet
+`examples/consumer.py` koristi `XREAD`, kreće od `0-0` i nakon ponovnog pokretanja opet
 čita sve zadržane događaje. Ne potvrđuje događaje storage grupe i ne ometa
 njihovo spremanje. Odgovori Redisa su bajtovi: čita `fields[b"payload"]`,
 dekodira UTF-8 i zatim poziva `json.loads`. `block=2000` čeka do dvije sekunde;
 prazan odgovor znači da petlja nastavlja čekati.
 
-`demo.py` prikazuje pretvorbe Python objekt → JSON → UTF-8 bajtovi → JSON →
+`examples/demo.py` prikazuje pretvorbe Python objekt → JSON → UTF-8 bajtovi → JSON →
 Python objekt. Ne treba Redis ni PostgreSQL:
 
 ```bash
-python demo.py
+python examples/demo.py
 ```
 
 ## Portovi i varijable okruženja
@@ -248,10 +284,10 @@ Python procesi koriste:
 - `DATABASE_URL`: obvezan za inicijalizaciju, storage consumer i API statistiku.
 - `CONSUMER_NAME`: zadano `worker-1`, koristi ga storage consumer.
 
-Compose ne izvozi `.env` u Python procese u WSL-u. `main.py` izričito učitava
-`.env` uz pomoć `python-dotenv`, a `storage_consumer.py` to čini posredno jer
-uvozi `ClickEvent` iz `main.py`. Postojeće varijable okruženja imaju prednost.
-`init_db.py`, `producer.py` i `consumer.py` sami ne učitavaju `.env`. Zato
+Compose ne izvozi `.env` u Python procese u WSL-u. `app/main.py` izričito učitava
+`.env` iz korijena projekta uz pomoć `python-dotenv`, a `app/storage_consumer.py` to čini posredno jer
+uvozi `ClickEvent` iz `app.main`. Postojeće varijable okruženja imaju prednost.
+`scripts/init_db.py`, `examples/producer.py` i `examples/consumer.py` sami ne učitavaju `.env`. Zato
 prikazane naredbe eksplicitno izvoze postavke u svakom terminalu.
 
 `.env`, `.venv` i Python predmemorija ignorirani su u Gitu. `.env.example`
@@ -260,12 +296,11 @@ služi kao predložak bez stvarnih pristupnih podataka.
 ## Testovi
 
 U aktiviranom virtualnom okruženju instalirajte razvojne ovisnosti i pokrenite
-oba skupa testova:
+oba skupa testova (razvojne ovisnosti uključuju HTTP klijente za TestClient):
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pip install python-dotenv
-python -m unittest -v test_main test_storage_consumer
+python -m unittest discover -s tests -v
 ```
 
 Testovi koriste zamjenske Redis i PostgreSQL objekte, pa ne trebaju pokrenute
@@ -309,10 +344,10 @@ podatke; obični `docker compose down` ih zadržava.
 
 ## Česti problemi
 
-- **`ModuleNotFoundError`**: aktivirajte `.venv` i instalirajte ovisnosti;
-  za modul `dotenv` potrebna je zasebna naredba `python -m pip install python-dotenv`.
+- **`ModuleNotFoundError`**: aktivirajte `.venv`, instalirajte ovisnosti iz
+  `requirements.txt` i pokrećite naredbe iz korijena projekta.
 - **Nedostaje `DATABASE_URL`**: učitajte i izvezite `.env` u terminalu u kojem
-  pokrećete `init_db.py`; API i consumer također trebaju tu postavku za bazu.
+  pokrećete `scripts/init_db.py`; API i consumer također trebaju tu postavku za bazu.
 - **Port nije dostupan**: promijenite `POSTGRES_PORT` i port u `DATABASE_URL`,
   pa ponovno pokrenite `docker compose up -d`.
 - **Veza s bazom odbijena**: provjerite `docker compose ps`, `pg_isready`,
@@ -320,9 +355,9 @@ podatke; obični `docker compose down` ih zadržava.
   lozinku u volumenu.
 - **HTTP 503 pri slanju klika**: provjerite Redis i `REDIS_URL`.
 - **HTTP 503 za statistiku**: provjerite `DATABASE_URL`, PostgreSQL i je li
-  tablica inicijalizirana naredbom `python init_db.py`.
-- **Klik je prihvaćen, ali broj ne raste**: pokrenite `storage_consumer.py` i
-  provjerite njegov terminal. `consumer.py` samo ispisuje događaje.
+  tablica inicijalizirana naredbom `python -m scripts.init_db`.
+- **Klik je prihvaćen, ali broj ne raste**: pokrenite `app/storage_consumer.py` i
+  provjerite njegov terminal. `examples/consumer.py` samo ispisuje događaje.
 
 ## Kako rade API i validacija
 
@@ -369,12 +404,12 @@ Pogledajte [redis-py postavke veza](https://redis.readthedocs.io/en/stable/conne
 
 ## Kako radi pohrana u PostgreSQL
 
-`init_db.main()` stvara tablicu `click_events` ako ne postoji. Tablica ima
+`scripts.init_db.main()` stvara tablicu `click_events` ako ne postoji. Tablica ima
 UUID primarni ključ, verziju sheme ograničenu na 1, `TIMESTAMPTZ` i neprazne
 tekstualne stupce ograničene duljine. Kontekst Psycopg veze potvrđuje stvaranje
 tablice na uspješnom izlasku, zatvara vezu i zatim se ispisuje poruka uspjeha.
 
-`storage_consumer.py` koristi Psycopg 3 i isti `ClickEvent` model kao API:
+`app/storage_consumer.py` koristi Psycopg 3 i isti `ClickEvent` model kao API:
 
 - `create_group(client)` stvara grupu `click-storage` od ID-a `0` s `MKSTREAM`.
   Zato su svi zadržani događaji dostupni za obradu, a odsutan stream se stvara.
@@ -433,7 +468,7 @@ ponovno zaustavlja isti consumer pri pokretanju dok se ručno ne riješi.
 
 ## Kako rade preglednička stranica i statistika
 
-`index()` poslužuje `index.html` kroz `FileResponse`. Stranica ima tri gumba
+`index()` poslužuje `app/static/index.html` kroz `FileResponse`. Stranica ima tri gumba
 sa stalnim ID-jevima: `signup-button`, `products-button` i `contact-button`.
 CSS i obični JavaScript nalaze se u HTML datoteci; nije potrebna zasebna
 izgradnja frontenda ili dodatni framework.

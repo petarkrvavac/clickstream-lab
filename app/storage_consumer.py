@@ -6,7 +6,7 @@ import redis
 from redis.backoff import NoBackoff
 from redis.retry import Retry
 
-from main import ClickEvent
+from app.main import ClickEvent
 
 
 STREAM = "events:clicks:v1"
