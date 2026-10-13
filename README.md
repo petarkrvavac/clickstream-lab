@@ -58,9 +58,9 @@ U `.env` postavite stvarne pristupne podatke. Primjer za lokalni razvoj:
 POSTGRES_DB=click_monitoring
 POSTGRES_USER=learner
 POSTGRES_PASSWORD=replace_with_a_local_password
-POSTGRES_PORT=5433
+POSTGRES_PORT=5434
 REDIS_URL=redis://127.0.0.1:6379/0
-DATABASE_URL=postgresql://learner:replace_with_a_local_password@127.0.0.1:5433/click_monitoring
+DATABASE_URL=postgresql://learner:replace_with_a_local_password@127.0.0.1:5434/click_monitoring
 CONSUMER_NAME=worker-1
 ```
 
@@ -69,10 +69,9 @@ u `DATABASE_URL` moraju odgovarati ostalim postavkama. Posebne znakove u lozinci
 unutar URL-a kodirajte kao URL, primjerice `@` kao `%40` i `#` kao `%23`;
 `POSTGRES_PASSWORD` ostaje izvorna lozinka.
 
-**Dodajte `POSTGRES_PORT` u `.env`: trenutačni `.env.example` ga ne sadrži,
-a `compose.yaml` ga koristi za objavljivanje PostgreSQL porta.** Primjeri u
-ovom README-u koriste `5433`. Ako odaberete drugi port, promijenite i
-`DATABASE_URL`.
+`.env.example` sadrži sve navedene postavke. Primjeri koriste PostgreSQL port
+`5434`, na kojem je ovaj projekt provjeren. Ako je port zauzet, promijenite
+`POSTGRES_PORT` i port u `DATABASE_URL` na istu slobodnu vrijednost.
 
 Pripremite virtualno okruženje i instalirajte ovisnosti:
 
@@ -216,7 +215,7 @@ sam generira pri svakom kliku.
 ## Skripte za učenje
 
 `examples/consumer.py` samo čita i ispisuje događaje iz Redisa. Za spremanje u bazu
-pokrenite `app/storage_consumer.py`. Izvornog consumera možete pokrenuti u zasebnom
+pokrenite `python -m app.storage_consumer`. Izvornog consumera možete pokrenuti u zasebnom
 terminalu nakon aktivacije okruženja i učitavanja postavki:
 
 ```bash
@@ -249,13 +248,13 @@ python examples/demo.py
 ## Portovi i varijable okruženja
 
 Mapiranje porta ima oblik `host_address:host_port:container_port`.
-`127.0.0.1:5433:5432` prosljeđuje lokalni port 5433 na port 5432 u PostgreSQL
+`127.0.0.1:5434:5432` prosljeđuje lokalni port 5434 na port 5432 u PostgreSQL
 kontejneru. Oba Docker servisa objavljuju portove samo na lokalnoj adresi.
 
 | Servis | Adresa iz WSL-a | Port | Postavke |
 | --- | --- | --- | --- |
 | Redis | `127.0.0.1` | `6379` | Baza `0`; `redis://127.0.0.1:6379/0` |
-| PostgreSQL | `127.0.0.1` | Vrijednost `POSTGRES_PORT`, u primjeru `5433` | Baza, korisnik i lozinka iz `.env` |
+| PostgreSQL | `127.0.0.1` | Vrijednost `POSTGRES_PORT`, u primjeru `5434` | Baza, korisnik i lozinka iz `.env` |
 | API | `127.0.0.1` | `8000` | Pokreće se Uvicornom u WSL-u |
 
 Nazivi `redis` i `postgres` razrješavaju se između kontejnera na zadanoj
@@ -290,7 +289,7 @@ uvozi `ClickEvent` iz `app.main`. Postojeće varijable okruženja imaju prednost
 `scripts/init_db.py`, `examples/producer.py` i `examples/consumer.py` sami ne učitavaju `.env`. Zato
 prikazane naredbe eksplicitno izvoze postavke u svakom terminalu.
 
-`.env`, `.venv` i Python predmemorija ignorirani su u Gitu. `.env.example`
+`.env`, `.venv/`, `.vscode/` i Python predmemorija ignorirani su u Gitu. `.env.example`
 služi kao predložak bez stvarnih pristupnih podataka.
 
 ## Testovi
@@ -356,7 +355,7 @@ podatke; obični `docker compose down` ih zadržava.
 - **HTTP 503 pri slanju klika**: provjerite Redis i `REDIS_URL`.
 - **HTTP 503 za statistiku**: provjerite `DATABASE_URL`, PostgreSQL i je li
   tablica inicijalizirana naredbom `python -m scripts.init_db`.
-- **Klik je prihvaćen, ali broj ne raste**: pokrenite `app/storage_consumer.py` i
+- **Klik je prihvaćen, ali broj ne raste**: pokrenite `python -m app.storage_consumer` i
   provjerite njegov terminal. `examples/consumer.py` samo ispisuje događaje.
 
 ## Kako rade API i validacija
